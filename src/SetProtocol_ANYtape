@@ -1,0 +1,168 @@
+#! /usr/bin/env python
+
+
+"""
+A bit of code to set the srm protocol for any tier 1 tape test RSE.
+"""
+
+from __future__ import division, print_function
+
+import pprint
+import re 
+#added re for testKaty
+
+from rucio.client.client import Client
+
+token = None
+
+#rse = 'T1_IT_CNAF_Tape_Test'
+#rse = 'T1_UK_RAL_Tape_Test'
+#rse = 'T1_US_FNAL_Tape_Test'
+#rse = 'T1_RU_JINR_Tape_Test'
+#rse = 'T1_ES_PIC_Tape_Test'
+rse = 'T1_FR_CCIN2P3_Tape_Test'
+#rse = 'T1_DE_KIT_Tape_Test'
+
+rse_definitions = {'T1_IT_CNAF_Tape_Test':{}, 'T1_UK_RAL_Tape_Test':{}, 'T1_US_FNAL_Tape_Test':{}, 'T1_RU_JINR_Tape_Test':{}, 'T1_ES_PIC_Tape_Test':{}, 'T1_FR_CCIN2P3_Tape_Test':{}, 'T1_DE_KIT_Tape_Test':{}}
+
+#adding protocol unique to each site
+rse_definitions['T1_IT_CNAF_Tape_Test']['proto'] = {
+    'hostname': 'storm-fe-cms.cr.cnaf.infn.it',
+    'port': 8444,
+    'extended_attributes':{'tfc_proto': 'srmv2',
+                          'web_service_path': '/srm/managerv2?SFN=',
+                          'tfc': [{'path': '^/+store/(.*)', 'out': '/store/test/rucio/int/$1', u'proto': 'direct'},
+    {'path': '(.*)', 'out': 'srm://storm-fe-cms.cr.cnaf.infn.it:8444/srm/managerv2?SFN=/cmstape$1', 'chain': 'direct', 'proto': 'srmv2'}]}
+}
+
+rse_definitions['T1_UK_RAL_Tape_Test']['proto'] = {
+    'hostname': 'srm-cms.gridpp.rl.ac.uk',
+    'port': 8443,
+    'extended_attributes':{'tfc_proto': 'srmv2',
+                          'web_service_path': '/srm/managerv2?SFN=',
+                          'tfc': [{'path': '^/+store/(.*)', 'out': '/castor/ads.rl.ac.uk/prod/cms/store/test/rucio/$1', u'proto': 'direct'},
+    {'path': '(.*)', 'out': 'srm://srm-cms.gridpp.rl.ac.uk:8443/srm/managerv2?SFN=$1', 'chain': 'direct', 'proto': 'srmv2'}]}
+}
+rse_definitions['T1_US_FNAL_Tape_Test']['proto'] = {
+    'hostname': 'cmsdcatape01.fnal.gov',
+    'port': 8443,
+    'extended_attributes':{'tfc_proto': 'srmv2',
+                          'web_service_path': '/srm/managerv2?SFN=',
+                          'tfc': [{'path': '^/+lustre/unmerged/logs/prod/(.*)', 'out': 'srm://cmslmon.fnal.gov:8443/srm/v2/server?SFN=/lustre/unmerged/logs/prod/$1', 'proto': 'srmv2'},
+    {'path': '^/+store/(.*)', 'out': 'srm://cmsdcatape01.fnal.gov:8443/srm/managerv2?SFN=/11/store/test/rucio/int/cms/store/$1', 'proto': 'srmv2'},
+    {'path': '^/+store/(.*)', 'out': 'srm://cmsdcatape01.fnal.gov:8443/srm/managerv2?SFN=$1', 'chain': 'direct', 'proto': 'srmv2'}]}
+}
+#The tfc for FNAL, above, shows how to specify path for unmerged files
+
+rse_definitions['T1_RU_JINR_Tape_Test']['proto'] = {
+    'hostname': 'srm-cms-mss.jinr-t1.ru',
+    'port': 8443,
+    'extended_attributes':{'tfc_proto': 'srmv2',
+                          'web_service_path': '/srm/managerv2?SFN=',
+                          'tfc': [{'path': '^/+store/(.*)', 'out': '/store/test/rucio/int/$1', u'proto': 'direct'},
+    {'path': '(.*)', 'out': 'srm://srm-cms-mss.jinr-t1.ru:8443/srm/managerv2?SFN=/pnfs/jinr-t1.ru/data/cms$1', 'chain': 'direct', 'proto': 'srmv2'}]}
+}
+
+rse_definitions['T1_ES_PIC_Tape_Test']['proto'] = {
+    'hostname': 'srmcms.pic.es',
+    'port': 8443,
+    'extended_attributes':{'tfc_proto': 'srmv2',
+                          'web_service_path': '/srm/managerv2?SFN=',
+                          'tfc': [{'path': '^/+store/(.*)', 'out': '/store/test/rucio/int/$1', u'proto': 'direct'},
+    {'path': '(.*)', 'out': 'srm://srmcms.pic.es:8443/srm/managerv2?SFN=/pnfs/pic.es/data/cms/$1', 'chain': 'direct', 'proto': 'srmv2'}]}
+}
+
+rse_definitions['T1_FR_CCIN2P3_Tape_Test']['proto'] = {
+    'hostname': 'ccsrm.in2p3.fr',
+    'port': 8443,
+    'extended_attributes':{'tfc_proto': 'srmv2',
+                          'web_service_path': '/srm/managerv2?SFN=',
+                          'tfc': [{'path': '^/+store/(.*)', 'out': '/store/test/rucio/int/$1', u'proto': 'direct'},
+    {'path': '(.*)', 'out': 'srm://ccsrm.in2p3.fr:8443/srm/managerv2?SFN=/pnfs/in2p3.fr/data/cms/data$1', 'chain': 'direct', 'proto': 'srmv2'}]}
+}
+
+rse_definitions['T1_DE_KIT_Tape_Test']['proto'] = {
+    'hostname': 'cmssrm-kit.gridka.de',
+    'port': 8443,
+    'extended_attributes':{'tfc_proto': 'srmv2',
+                          'web_service_path': '/srm/managerv2?SFN=',
+                          'tfc': [{'path': '^/+store/(.*)', 'out': '/store/test/rucio/int/$1', u'proto': 'direct'},
+    {'path': '(.*)', 'out': 'srm://cmssrm-kit.gridka.de:8443/srm/managerv2?SFN=/pnfs/gridka.de/cms$1', 'chain': 'direct', 'proto': 'srmv2'}]}
+}
+
+#adding protocol common to every site
+rse_definitions[rse]['proto'].update([
+    ('scheme', 'srm'),
+    ('domains', {'wan' : {'read': 1, 'write': 1, 'third_party_copy': 1, 'delete': 1}, 'lan': {'read': 0, 'write': 0, 'delete': 0}}),
+    ('prefix', '/',),
+    ('impl', 'rucio.rse.protocols.gfal.Default')
+])
+
+
+pprint.pprint(rse_definitions[rse]['proto'])
+client = Client()
+client.whoami()
+
+#Change lfn2pfn algorithm
+client.add_rse_attribute(rse, "lfn2pfn_algorithm", "cmstfc")
+#Existing srm protocol must be deleted before adding a new one
+client.delete_protocols(rse, scheme='srm')
+#Add new srm protocol with parameters defined in this script
+client.add_protocol(rse, rse_definitions[rse]['proto'])
+
+MAX_CHAIN_DEPTH=5
+name="/store/some/path/katy.root"
+
+def cmstfc(scope, name, rse, rse_attrs, proto_attrs):
+    """
+    Map lfn into pfn accoring to the declared tfc in the protocol.
+    """
+
+    # Prevents unused argument warnings in pylint
+    del rse
+    del rse_attrs
+    del scope
+
+    # Getting the TFC
+    tfc = proto_attrs['extended_attributes']['tfc']
+    tfc_proto = proto_attrs['extended_attributes']['tfc_proto']
+
+    # matching the lfn into a pfn
+    pfn = tfc_lfn2pfn(name, tfc, tfc_proto)
+    print(pfn)
+
+    # now we have to remove the protocol part of the pfn
+    proto_pfn = proto_attrs['scheme'] + '://' + proto_attrs['hostname'] + ':' + str(proto_attrs['port'])
+    if 'extended_attributes' in proto_attrs and \
+            'web_service_path' in proto_attrs['extended_attributes']:
+        proto_pfn += proto_attrs['extended_attributes']['web_service_path']
+    proto_pfn += proto_attrs['prefix']
+
+    proto_less = pfn.replace(proto_pfn, "")
+    return re.sub('/+', '/', proto_less)  # Remove unnecessary double slashes
+
+
+def tfc_lfn2pfn(lfn, tfc, proto, depth=0):
+    """
+    Performs the actual tfc matching
+    """
+
+    if depth > MAX_CHAIN_DEPTH:
+        raise Exception("Max depth reached matching lfn %s and protocol %s with tfc %s" %
+                        lfn, proto, tfc)
+
+    for rule in tfc:
+        if rule['proto'] == proto:
+            if 'chain' in rule:
+                lfn = tfc_lfn2pfn(lfn, tfc, rule['chain'], depth + 1)
+		print(lfn)
+            regex = re.compile(rule['path'])
+            if regex.match(lfn):
+		return regex.sub(rule['out'].replace('$', '\\'), lfn)
+		
+    if depth > 0:
+        return lfn
+
+    raise ValueError("lfn %s with proto %s cannot be matched by tfc %s" % (lfn, proto, tfc))
+
+mapped_pfn = cmstfc("cms:", name, None, None, rse_definitions[rse]['proto'])

@@ -1,0 +1,113 @@
+#! /usr/bin/env python
+
+
+"""
+A bit of code to set the srm protocol for T1_UK_RAL_Tape_Test.
+"""
+
+from __future__ import division, print_function
+
+import pprint
+import re 
+#added re for testKaty
+
+from rucio.client.client import Client
+
+token = None
+
+tfc = [
+    {'path': '^/+store/(.*)', 'out': '/castor/ads.rl.ac.uk/prod/cms/store/test/rucio/$1', u'proto': 'direct'},
+    {'path': '(.*)', 'out': 'srm://srm-cms.gridpp.rl.ac.uk:8443/srm/managerv2?SFN=$1', 'chain': 'direct', 'proto': 'srmv2'} 
+]
+
+proto = {
+    'scheme': 'srm',
+    'hostname': 'srm-cms.gridpp.rl.ac.uk',
+    'port': 8443,
+    'extended_attributes': {},
+    'domains': {'wan' : {'read': 1, 'write': 1, 'third_party_copy': 1, 'delete': 1}, 'lan': {'read': 0, 'write': 0, 'delete': 0}}
+}
+
+proto['extended_attributes']['web_service_path'] = '/srm/managerv2?SFN='
+
+proto['prefix'] = '/'
+proto['extended_attributes']['tfc_proto'] = 'srmv2'
+proto['extended_attributes']['tfc'] = tfc
+
+if token:
+    proto['extended_attributes']['space_token'] = token
+
+if proto['extended_attributes'] == {}:
+    proto['extended_attributes'] = None
+
+proto['impl'] = 'rucio.rse.protocols.gfal.Default'
+
+pprint.pprint(proto)
+client = Client()
+client.whoami()
+
+rse='T1_UK_RAL_Tape_Test'
+
+#Change lfn2pfn algorithm
+client.add_rse_attribute(rse, "lfn2pfn_algorithm", "cmstfc")
+#Existing srm protocol must be deleted before adding a new one
+client.delete_protocols(rse, scheme='srm')
+#Add new srm protocol with parameters defined in this script
+client.add_protocol(rse, proto)
+
+MAX_CHAIN_DEPTH=5
+name="/store/some/path/katy.root"
+
+def cmstfc(scope, name, rse, rse_attrs, proto_attrs):
+    """
+    Map lfn into pfn accoring to the declared tfc in the protocol.
+    """
+
+    # Prevents unused argument warnings in pylint
+    del rse
+    del rse_attrs
+    del scope
+
+    # Getting the TFC
+    tfc = proto_attrs['extended_attributes']['tfc']
+    tfc_proto = proto_attrs['extended_attributes']['tfc_proto']
+
+    # matching the lfn into a pfn
+    pfn = tfc_lfn2pfn(name, tfc, tfc_proto)
+    print(pfn)
+
+    # now we have to remove the protocol part of the pfn
+    proto_pfn = proto_attrs['scheme'] + '://' + proto_attrs['hostname'] + ':' + str(proto_attrs['port'])
+    if 'extended_attributes' in proto_attrs and \
+            'web_service_path' in proto_attrs['extended_attributes']:
+        proto_pfn += proto_attrs['extended_attributes']['web_service_path']
+    proto_pfn += proto_attrs['prefix']
+
+    proto_less = pfn.replace(proto_pfn, "")
+    return re.sub('/+', '/', proto_less)  # Remove unnecessary double slashes
+
+
+def tfc_lfn2pfn(lfn, tfc, proto, depth=0):
+    """
+    Performs the actual tfc matching
+    """
+
+    if depth > MAX_CHAIN_DEPTH:
+        raise Exception("Max depth reached matching lfn %s and protocol %s with tfc %s" %
+                        lfn, proto, tfc)
+
+    for rule in tfc:
+        if rule['proto'] == proto:
+            if 'chain' in rule:
+                lfn = tfc_lfn2pfn(lfn, tfc, rule['chain'], depth + 1)
+		print(lfn)
+            regex = re.compile(rule['path'])
+            if regex.match(lfn):
+		return regex.sub(rule['out'].replace('$', '\\'), lfn)
+		
+    if depth > 0:
+        return lfn
+
+    raise ValueError("lfn %s with proto %s cannot be matched by tfc %s" % (lfn, proto, tfc))
+
+mapped_pfn = cmstfc("cms:", name, None, None,  proto)
